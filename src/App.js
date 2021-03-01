@@ -1,51 +1,72 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Switch, Route } from 'react-router-dom';
-import {PublicClientApplication} from '@azure/msal-browser';
-import Config from './ad-config';
+import {v4 as uuid} from 'uuid'
+const SERVER_HOST = 'http://localhost:5002'
+const chunkSize = ((1024 * 1024) * 8) // 8mb
+const uploadFiles = (file, fileId) => {
+  const httpOptions = {
+    url: `${SERVER_HOST}/upload`,
+    onAbort: () => {
+      console.log('@on abort');
+    },
+    onError: () => {
+      console.log('@on onError');
+    },
+    onProgress: () => {
+      console.log('@on onProgress');
+    },
+    onComplete: () => {
+      console.log('@on onComplete');
+    },
+  }
 
-const AADClientAuth = new PublicClientApplication({
-  auth: {
-    clientId: Config.appId,
-    authority: Config.authority,
-    redirectUri: Config.redirectUri,
-    knownAuthorities: ['arfxhomedev.onmicrosoft.com'],
-    clientSecret: '.g5WpOIGzWhl2lCvnH_YoR37q-kNN1_8K7'
-    // authorityMetadata: 'https://login.microsoftonline.com/shawmakesmagicgmail.onmicrosoft.com/oauth2/token'
-  },
-  cache: {
-    cacheLocation: "sessionStorage",
-    storeAuthStateInCookie: false,
+  const uploadToServer = (file, options) => {
+    const request = new XMLHttpRequest()
+    const formData = new FormData()
+    
+    formData.append('blob', file, file.name)
+    request.open("POST", options.url, true)
+    request.setRequestHeader('X-File-Id', fileId)
+
+    request.onload = () => options.onComplete();
+
+    request.upload.onprogress = () => options.onProgress();
+
+    request.onerror = (e) => options.onError(e);
+    
+    request.onabort = (e) => options.onAbort(e);
+
+    request.ontimeout = (e) => options.onError(e);
+    request.send(formData);
   }
-})
+  // console.log('file :>> ', file);
+  // console.log('file :>> ', file);
+  // blobStorage.upload(productId, file)
+  uploadToServer(file, httpOptions)
+}
 const MainContainer = () => {
-  const login = async () => {
-    try {
-      const login = await AADClientAuth.loginPopup({
-        scopes: Config.scopes,
-        // prompt: 'select_account',
-      });
-    } catch (error) {
-      console.log('error :>> ', error);
-      throw error
+  // const inputFile = useRef(null)
+  const handleFileOnChange = async (ev) => {
+    const file = ev.target.files[0]
+    const x = Math.ceil(file.size / chunkSize)
+    const fileId = uuid()
+    console.log('file :>> ', file);
+    console.log('request length :>> ', x);
+    let blobSize = 0
+    for (let y = 0; y<x; y++) {
+      let blobLength = file.size > (blobSize + chunkSize) ? (blobSize + chunkSize) : file.size
+      uploadFiles(file.slice(blobSize, blobLength), `${fileId}.${file.name.split('.').pop()}`)
+      blobSize = blobLength
     }
-    console.dir('login :>> ', login);
-    const ftoken = await AADClientAuth.acquireTokenSilent({
-      scopes: ['https://arfxhomedev.onmicrosoft.com/7dad8244-d201-41a9-9fa1-4236025372df/demo.read'],
-      forceRefresh: true
-    });
-    console.dir('login :>> ', ftoken);
   }
-  useEffect(() => {
-    const accounts = AADClientAuth.getAllAccounts();
-    console.log('accounts :>> ', accounts);
-  }, [])
   return (
     <div>
       <h1>Open Hellox World.txt</h1>
       <div className="Hello">
-        <button type="button" onClick={login}>
+        {/* <button type="button" onClick={upload}>
           Open File
-        </button>
+        </button> */}
+        <input onChange={handleFileOnChange} type='file' name = 'blobFile'/>
       </div>
     </div>
   );
