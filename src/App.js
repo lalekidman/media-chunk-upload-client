@@ -1,64 +1,94 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrowserRouter as Router, Switch, Route } from 'react-router-dom';
 import {v4 as uuid} from 'uuid'
+import http from 'axios'
 const SERVER_HOST = 'http://localhost:5002'
-const chunkSize = ((1024 * 1024) * 8) // 8mb
-const uploadFiles = (file, fileId) => {
-  const httpOptions = {
-    url: `${SERVER_HOST}/upload`,
-    onAbort: () => {
-      console.log('@on abort');
-    },
-    onError: () => {
-      console.log('@on onError');
-    },
-    onProgress: () => {
-      console.log('@on onProgress');
-    },
-    onComplete: () => {
-      console.log('@on onComplete');
-    },
+const blobUploader = (file, blobName, options = {}) => {
+  const {
+    blobStartingByte = 0
+  } = options
+  const chunkSize = ((1024 * 1024) * 10) // 8mb
+  const totalFileSize = file.size
+  const u = (blobStartingByte) => {
+    let blobByteLength = file.size > (blobStartingByte + chunkSize) ? (blobStartingByte + chunkSize) : file.size
+    uploadFiles(file.slice(blobStartingByte, blobByteLength), blobName)
+      .then(() => {
+        if (blobStartingByte < file.size) {
+          return u(blobByteLength)
+        }
+        return true
+      })
   }
-
-  const uploadToServer = (file, options) => {
-    const request = new XMLHttpRequest()
-    const formData = new FormData()
+  const uploadFiles = (file, fileId) => {
+    return new Promise((resolve, reject) => {
+      const httpOptions = {
+        url: `${SERVER_HOST}/upload`,
+        onAbort: (err) => {
+          console.log('@on abort');
+          reject(err)
+        },
+        onError: (err) => {
+          console.log('@on onError');
+          reject(err)
+        },
+        onProgress: () => {
+          console.log('@on onProgress');
+        },
+        onComplete: () => {
+          console.log('@on onComplete');
+          resolve()
+        },
+      }
     
-    formData.append('blob', file, file.name)
-    request.open("POST", options.url, true)
-    request.setRequestHeader('X-File-Id', fileId)
-
-    request.onload = () => options.onComplete();
-
-    request.upload.onprogress = () => options.onProgress();
-
-    request.onerror = (e) => options.onError(e);
+      const uploadToServer = (file, options) => {
+        const request = new XMLHttpRequest()
+        const formData = new FormData()
+        formData.append('blob', file, file.name)
+        request.open("POST", options.url, true)
+        request.setRequestHeader('X-File-Id', fileId)
+        request.setRequestHeader('X-File-Size', totalFileSize)
     
-    request.onabort = (e) => options.onAbort(e);
-
-    request.ontimeout = (e) => options.onError(e);
-    request.send(formData);
+        request.onload = () => options.onComplete();
+    
+        request.upload.onprogress = () => options.onProgress();
+    
+        request.onerror = (e) => options.onError(e);
+        
+        request.onabort = (e) => options.onAbort(e);
+    
+        request.ontimeout = (e) => options.onError(e);
+        
+        request.send(formData);
+      }
+      uploadToServer(file, httpOptions)
+    })
   }
-  // console.log('file :>> ', file);
-  // console.log('file :>> ', file);
-  // blobStorage.upload(productId, file)
-  uploadToServer(file, httpOptions)
+  u(blobStartingByte)
 }
 const MainContainer = () => {
+  const [uploadedFile, setUploadedFile] = useState({})
   // const inputFile = useRef(null)
   const handleFileOnChange = async (ev) => {
-    const file = ev.target.files[0]
-    const x = Math.ceil(file.size / chunkSize)
+    setUploadedFile(ev.target.files[0])
     const fileId = uuid()
-    console.log('file :>> ', file);
-    console.log('request length :>> ', x);
-    let blobSize = 0
-    for (let y = 0; y<x; y++) {
-      let blobLength = file.size > (blobSize + chunkSize) ? (blobSize + chunkSize) : file.size
-      uploadFiles(file.slice(blobSize, blobLength), `${fileId}.${file.name.split('.').pop()}`)
-      blobSize = blobLength
-    }
+    return;
+    blobUploader(uploadedFile, `${fileId}.${uploadedFile.name.split('.').pop()}`)
   }
+
+const checkBlobStatus = () => {
+  return http({
+    baseURL: SERVER_HOST,
+    url: `/status?fileId=${`e496d1c1-a7c5-4d62-ad73-02e9f01120cc.mp4`}`,
+    method: "GET"
+  })
+  // .then((response) => response.json())
+  .then((response) => {
+    console.log('data :>> ', response.data);
+    blobUploader(uploadedFile, `e496d1c1-a7c5-4d62-ad73-02e9f01120cc.mp4`, {
+      blobStartingByte: response.data.totalBytesUploaded
+    })
+  })
+}
   return (
     <div>
       <h1>Open Hellox World.txt</h1>
@@ -67,6 +97,7 @@ const MainContainer = () => {
           Open File
         </button> */}
         <input onChange={handleFileOnChange} type='file' name = 'blobFile'/>
+        <button onClick={checkBlobStatus}>Blob Status</button>
       </div>
     </div>
   );
